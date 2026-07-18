@@ -1,0 +1,43 @@
+VMware_MCP_SERVER
+Copyright 2024 DanilenkA
+
+This product is a fork of vmware-vsphere-mcp-server, originally
+developed by Giulio Librando (https://github.com/giuliolibrando).
+
+Original project:
+  Repository: https://github.com/giuliolibrando/vmware-vsphere-mcp-server
+  License: Apache License, Version 2.0
+  Copyright: 2024 Giulio Librando and contributors
+
+Modifications in this fork (2024-2026, DanilenkA):
+  - Fixed broken upstream tools (get_alarms, get_vm_events, get_host_details)
+  - Added real-time performance metrics via pyVmomi PerformanceManager
+    (get_vm_metrics, get_host_metrics)
+  - Added complete vSAN read-only monitoring suite (10 tools):
+    * list_vsan_clusters
+    * get_vsan_cluster_health
+    * get_vsan_capacity_info
+    * get_vsan_disk_groups
+    * get_vsan_performance_metrics
+    * get_vsan_health_checks
+    * get_vsan_objects
+    * get_vsan_storage_policies
+    * get_vsan_capabilities
+    * get_vsan_witness_info
+  - Added vSAN helper methods in pyvmomi_client.py
+    (get_vsan_vc_mos, find_vsan_cluster, is_vsan_enabled)
+  - CA-aware SSL support
+  - Sanitized public SKILL template (EXAMPLE_SKILL.md)
+
+This product includes software originally developed by Giulio Librando
+and contributors to vmware-vsphere-mcp-server, licensed under the
+Apache License, Version 2.0 (the "License"). You may obtain a copy of
+the License at:
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.

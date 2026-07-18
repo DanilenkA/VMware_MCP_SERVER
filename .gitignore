@@ -1,0 +1,27 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment files
+.env
+
+# Editor directories
+.vscode/
+.idea/
+
+# Local dev/probe scripts (not part of the published repo)
+scripts/
+
+# Documentation (exclude all .md except README.md and EXAMPLE_SKILL.md)
+*.md
+!README.md
+!EXAMPLE_SKILL.md
