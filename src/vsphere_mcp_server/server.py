@@ -3651,6 +3651,168 @@ def get_vm_networks_pyvmomi(vm_name: str, hostname: str = None) -> str:
         client.close()
 
 
+@mcp.tool()
+def get_vm_ip(vm_name: str, hostname: str = None) -> str:
+    """Get guest IP address(es) of a VM via pyVmomi (vm.guest — reported by VMware Tools).
+
+    Returns the primary IP, per-NIC IP details, and VMware Tools status.
+    Requires a powered-on VM with VMware Tools running in the guest; otherwise
+    returns an informative message instead of an IP.
+
+    Args:
+        vm_name: VM name
+        hostname: vSphere hostname (optional)
+    """
+    client = PyVmomiClient(host=hostname)
+    try:
+        vm = client.find_vm(vm_name)
+        if vm is None:
+            return f"VM '{vm_name}' not found."
+
+        summary = vm.summary
+        power_state = str(summary.runtime.powerState)
+        if power_state != "poweredOn":
+            return (
+                f"VM '{vm_name}' is {power_state} — guest IP is only available "
+                "for powered-on VMs."
+            )
+
+        guest = vm.guest
+        tools_status = "unknown"
+        if guest is not None:
+            tools_status = str(
+                getattr(guest, "toolsRunningStatus", None)
+                or getattr(guest, "toolsStatus", None)
+                or "unknown"
+            )
+
+        if guest is None or tools_status != "guestToolsRunning":
+            return (
+                f"VMware Tools not running on '{vm_name}' (status: {tools_status}) — "
+                "guest IP unavailable. Install/start VMware Tools in the guest OS."
+            )
+
+        primary_ip = summary.guest.ipAddress if summary.guest else None
+        guest_hostname = getattr(guest, "hostName", None) or "N/A"
+        tools_version = getattr(guest, "toolsVersion", None) or "N/A"
+
+        result = f"Guest IP info for '{vm_name}':\n"
+        result += f"  Primary IP: {primary_ip or 'N/A'}\n"
+        result += f"  Guest hostname: {guest_hostname}\n"
+        result += f"  VMware Tools: {tools_status} (version {tools_version})\n"
+
+        # Per-NIC details from guest (vim.vm.GuestInfo.NicInfo)
+        nics = getattr(guest, "net", None) or []
+        if nics:
+            result += "\nNetwork adapters (from guest):\n"
+            for nic in nics:
+                network = getattr(nic, "network", None) or "Unknown"
+                mac = getattr(nic, "macAddress", None) or "N/A"
+                connected = getattr(nic, "connected", None)
+                result += f"  • {network}  [{mac}] connected={connected}\n"
+
+                ips = []
+                ip_config = getattr(nic, "ipConfig", None)
+                if ip_config is not None:
+                    for ipa in getattr(ip_config, "ipAddress", []) or []:
+                        addr = getattr(ipa, "ipAddress", None)
+                        prefix = getattr(ipa, "prefixLength", None)
+                        if addr:
+                            ips.append(f"{addr}/{prefix}" if prefix is not None else addr)
+                if not ips:
+                    for addr in getattr(nic, "ipAddress", []) or []:
+                        ips.append(addr)
+
+                if ips:
+                    for addr in ips:
+                        result += f"      IP: {addr}\n"
+                else:
+                    result += "      IP: (none reported)\n"
+        elif primary_ip is None:
+            result += f"\nNo guest IP reported by VMware Tools for '{vm_name}'."
+
+        return result.rstrip()
+    except Exception as e:
+        return f"Error getting VM IP info: {e}"
+    finally:
+        client.close()
+
+
+@mcp.tool()
+def list_vm_ips(hostname: str = None) -> str:
+    """List primary guest IP for all VMs in one query (pyVmomi PropertyCollector).
+
+    Reads vm.summary.guest.ipAddress for every non-template VM. Powered-off VMs
+    and VMs without running VMware Tools show '—'. Read-only, safe for inventory.
+
+    Args:
+        hostname: vSphere hostname (optional)
+    """
+    client = PyVmomiClient(host=hostname)
+    try:
+        view_ref = client.get_container_view(vim.VirtualMachine)
+        rows = []
+        try:
+            collector = client.content.propertyCollector
+            traversal = vmodl.query.PropertyCollector.TraversalSpec(
+                name="traverse",
+                type=vim.view.ContainerView,
+                path="view",
+                skip=False,
+            )
+            obj_spec = vmodl.query.PropertyCollector.ObjectSpec(
+                obj=view_ref,
+                skip=True,
+                selectSet=[traversal],
+            )
+            prop_spec = vmodl.query.PropertyCollector.PropertySpec(
+                type=vim.VirtualMachine,
+                pathSet=[
+                    "name",
+                    "runtime.powerState",
+                    "guest.ipAddress",
+                    "config.template",
+                ],
+                all=False,
+            )
+            filter_spec = vmodl.query.PropertyCollector.FilterSpec(
+                objectSet=[obj_spec],
+                propSet=[prop_spec],
+            )
+            for obj in collector.RetrieveProperties([filter_spec]):
+                props = {p.name: p.val for p in obj.propSet}
+                if props.get("config.template"):
+                    continue
+                name = props.get("name", "Unknown")
+                power = str(props.get("runtime.powerState", "unknown"))
+                ip = props.get("guest.ipAddress") or None
+                rows.append((name, ip, power))
+        finally:
+            view_ref.Destroy()
+
+        if not rows:
+            return "No virtual machines found."
+
+        rows.sort(key=lambda r: r[0].lower())
+        with_ip = sum(1 for _, ip, _ in rows if ip)
+
+        result = "VM guest IPs (powered-on VMs with VMware Tools):\n\n"
+        for name, ip, power in rows:
+            if ip:
+                result += f"  • {name}   {ip}   {power}\n"
+            elif power == "poweredOn":
+                result += f"  • {name}   — (no IP/Tools)   {power}\n"
+            else:
+                result += f"  • {name}   —   {power}\n"
+
+        result += f"\nTotal: {len(rows)} VMs, {with_ip} with guest IP."
+        return result
+    except Exception as e:
+        return f"Error listing VM IPs: {e}"
+    finally:
+        client.close()
+
+
 def main() -> None:
     """Main entry point for the MCP server."""
     import os

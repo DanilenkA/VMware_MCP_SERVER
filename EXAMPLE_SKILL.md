@@ -1,6 +1,6 @@
 ---
 name: vsphere-mcp
-description: Manage VMware vSphere / vCenter / ESXi environments (VMs, templates, snapshots, hosts, clusters, datastores, networks, VLANs, alarms, resource utilization, real-time performance metrics, vSAN monitoring) through the vmware-vsphere-mcp-server. Use whenever the user mentions vSphere, vCenter, ESXi, VMware, virtual machines on VMware, VM templates, snapshots, datastore usage, ESXi hosts, clusters, port groups, VLANs, VM power ops, VM cloning from template, performance metrics, CPU/memory/disk/network usage, **vSAN, stretched cluster, witness host, vSAN capacity, vSAN disk groups, vSAN health, vSAN performance metrics, vSAN objects, vSAN storage policies** — even when the word "VMware" is not used explicitly. Covers 50+ tools across 12 categories. All vSAN tools are read-only (Tier 1).
+description: Manage VMware vSphere / vCenter / ESXi environments (VMs, templates, snapshots, hosts, clusters, datastores, networks, VLANs, alarms, resource utilization, real-time performance metrics, guest IP addresses, vSAN monitoring) through the vmware-vsphere-mcp-server. Use whenever the user mentions vSphere, vCenter, ESXi, VMware, virtual machines on VMware, VM templates, snapshots, datastore usage, ESXi hosts, clusters, port groups, VLANs, VM power ops, VM cloning from template, performance metrics, CPU/memory/disk/network usage, guest IP / VM IP address / find VM by IP, **vSAN, stretched cluster, witness host, vSAN capacity, vSAN disk groups, vSAN health, vSAN performance metrics, vSAN objects, vSAN storage policies** — even when the word "VMware" is not used explicitly. Covers 55+ tools across 12 categories. All vSAN tools are read-only (Tier 1).
 ---
 
 # vSphere MCP skill (template)
@@ -42,7 +42,8 @@ vSphere operations are live infrastructure. Three tiers:
 `list_vms`, `get_vm_details`, `get_vm_disk_usage`, `get_vm_events`,
 `get_vm_performance_info`, `get_vm_storage_info`,
 `get_vms_with_high_resource_usage`, `generate_vm_report`,
-`get_vm_networks_pyvmomi`, `get_vm_metrics`, `list_vm_snapshots`,
+`get_vm_networks_pyvmomi`, `get_vm_metrics`, `get_vm_ip`, `list_vm_ips`,
+`list_vm_snapshots`,
 `list_templates`, `find_template_pyvmomi`, `list_datacenters`,
 `list_datacenters_pyvmomi`, `list_clusters_pyvmomi`, `list_hosts`,
 `get_host_details`, `get_host_performance_info`, `get_host_metrics`,
@@ -115,7 +116,7 @@ returns an error and performs nothing — re-call with `confirm=True` only
 | Backend choice | pick one MCP per task | `<MCP_BACKEND_A>` OR `<MCP_BACKEND_B>` OR `<MCP_BACKEND_C>` | all calls |
 | `vm_id` | VM ID **or** VM name (string) | `"vm-123"`, `"web-01"` | most VM tools, `get_vm_metrics` |
 | `host_id` | ESXi host ID (host-N) **or** IP/hostname | `"host-21"`, `"192.0.2.10"` | `get_host_details`, `get_host_metrics` |
-| `vm_name` | VM name (string) | `"web-01"` | `clone_vm` (new), `get_vm_networks_pyvmomi` |
+| `vm_name` | VM name (string) | `"web-01"` | `clone_vm` (new), `get_vm_networks_pyvmomi`, `get_vm_ip` |
 | `template_name` | template VM name | `"ubuntu-22.04-tpl"` | `clone_vm` (source), `find_template_pyvmomi` (partial/case-insensitive) |
 | `cluster_name` | cluster name | `"Prod-Cluster"` | `clone_vm`, all `get_vsan_*` |
 | `datacenter` | datacenter name | `"DC-Main"` | `list_clusters_pyvmomi`, `find_template_pyvmomi` |
@@ -179,7 +180,7 @@ get_resource_utilization_summary()
 `list_vms`, `get_vm_details`, `get_vm_disk_usage`, `get_vm_events`,
 `get_vm_performance_info`, `get_vm_storage_info`,
 `get_vms_with_high_resource_usage`, `generate_vm_report`,
-`get_vm_networks_pyvmomi`, `get_vm_metrics`.
+`get_vm_networks_pyvmomi`, `get_vm_metrics`, `get_vm_ip`, `list_vm_ips`.
 
 - `list_vms()` → all VMs with basics. `get_vm_details(vm_id="vm-100")` → full config.
 - `generate_vm_report()` → comprehensive dump of all VMs (heavier; use for audits).
@@ -192,6 +193,15 @@ get_resource_utilization_summary()
   active/consumed, disk read/write/latency, network received/transmitted).
   **Note:** VMware Tools required for guest-level metrics; powered-off VMs
   return no realtime data.
+- `get_vm_ip(vm_name="web-01")` → guest OS IP address(es) via pyVmomi
+  `vm.guest` (REST API does **not** expose guest IP). Returns primary IP,
+  guest hostname, VMware Tools version, and per-NIC details (network,
+  MAC, connected state, IPv4/IPv6 with prefix length).
+  **Requires:** VM powered on **and** VMware Tools running. Graceful
+  fallback messages if VM not found / not powered on / Tools not running.
+- `list_vm_ips()` → one-shot summary of guest IPs across every powered-on
+  VM with running VMware Tools (single PropertyCollector query; skips
+  templates). Useful for network inventory and "find VM by IP" lookups.
 
 **⚠️ Memory metric interpretation:**
 
@@ -209,6 +219,8 @@ get_vm_storage_info()
 get_vm_events(vm_id="vm-100", max_count=20)
 get_vm_networks_pyvmoki(vm_name="web-01")
 get_vm_metrics(vm_id="web-01", interval_id=20, max_sample=10)
+get_vm_ip(vm_name="web-01")
+list_vm_ips()
 get_vms_with_high_resource_usage()
 ```
 
@@ -522,6 +534,18 @@ get_vsan_witness_info(cluster_name="<CLUSTER_NAME>")
 5. get_vsan_capabilities()                             # 100+ vCenter features
 ```
 
+### H. Network inventory / "find VM by IP"
+
+```text
+1. list_vm_ips()                                       # one-shot: every powered-on VM with Tools running
+2. get_vm_ip(vm_name="<vm>")                           # detail: primary IP + hostname + Tools version + per-NIC
+3. get_vm_networks_pyvmomi(vm_name="<vm>")             # static vNIC config (works even without Tools)
+```
+
+Use `list_vm_ips()` first to scan, then drill in with `get_vm_ip(vm_name=...)`.
+Both rely on VMware Tools — VMs without it show "—" and need
+`get_vm_networks_pyvmomi` as fallback.
+
 ---
 
 ## 5. Backend selection
@@ -592,6 +616,10 @@ this server — destructive vSAN operations are explicitly out of scope.**
 | `find_template_pyvmomi` returns empty | name too specific — use partial/case-insensitive substring |
 | `delete_vm_snapshot` rejected | missing `confirm=True`, or wrong `snapshot_id` (get it from `list_vm_snapshots`) |
 | pyVmomi tools (`*_pyvmomi`) fail while REST tools work | pyVmomi not installed on the server, or SSL/MITM intercept breaking SmartConnect |
+| `get_vm_ip` returns "VM not found" | name typo or VM not visible to this backend — try `list_vms` to confirm exact spelling |
+| `get_vm_ip` returns "is not powered on" | Guest IP only available for powered-on VMs — start it first or use `get_vm_networks_pyvmomi` for static NIC config |
+| `get_vm_ip` returns "VMware Tools not running" | Tools service stopped or never installed — guest IP lives inside `vm.guest`, requires Tools. `get_vm_networks_pyvmomi` still works (it reads `vm.config.hardware`) |
+| `list_vm_ips` output shows "—" for many VMs | Powered-off VMs and VMs without running Tools are skipped by design (matches pyVmomi's `vm.summary.guest.ipAddress = None`) |
 | `list_clusters_pyvmomi` errors | missing required `datacenter` param — get name from `list_datacenters_pyvmomi` first |
 | Tool result inconsistent across backends | each backend targets a fixed vCenter — `list_datacenters` per backend reveals scope; vSAN tools on a non-vSAN vCenter return graceful "not found" |
 | `modify_vm_resources` / hot-add fails | VM's guest OS or version doesn't support hot-plug; power off first if allowed |

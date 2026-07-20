@@ -1,15 +1,16 @@
 # VMware_MCP_SERVER
 
-Комплексный Model Context Protocol (MCP) сервер для управления VMware vSphere, предоставляющий AI-агентам полный доступ к операциям виртуальной инфраструктуры через безопасное Docker-окружение. **53+ инструментов в 12 категориях**, включая **полный набор read-only vSAN мониторинга** (10 инструментов).
+Комплексный Model Context Protocol (MCP) сервер для управления VMware vSphere, предоставляющий AI-агентам полный доступ к операциям виртуальной инфраструктуры через безопасное Docker-окружение. **55+ инструментов в 12 категориях**, включая **полный набор read-only vSAN мониторинга** (10 инструментов) и **получение guest IP через pyVmomi** (2 инструмента).
 
 ## Основные улучшения
 
 - ✅ Исправлены критические баги (requirements, REST endpoints, SSL)
 - ✨ Добавлены инструменты для real-time метрик через pyVmomi PerformanceManager
-- ✨ Добавлен **полный набор vSAN read-only мониторинга** (10 инструментов)
+- ✨ Добавлен **полный набор vSAN read-only мониторинга** (10 инструментов, Phase 0-5)
+- ✨ Добавлены **guest IP tools** (`get_vm_ip`, `list_vm_ips`) — REST API vCenter не отдаёт guest IP, реализация через pyVmomi `vm.guest` (Phase 6)
 - 🔒 CA-aware SSL для безопасных production-соединений
 - 📚 Расширенная документация на русском языке
-- 🎯 SKILL.md — готовый к использованию гайд для AI-агентов
+- 🎯 SKILL.md / EXAMPLE_SKILL.md — готовые к использованию гайды для AI-агентов
 
 ---
 
@@ -21,6 +22,7 @@
 - **Операции питания** — запуск, остановка, перезагрузка ВМ
 - **Мониторинг ресурсов** — использование CPU, RAM и сети
 - **Информация о хранилище** — использование дисков и датасторов
+- **Guest IP** — `get_vm_ip` (детально по одной ВМ) и `list_vm_ips` (сводка по всем ВМ) через pyVmomi `vm.guest`
 
 ### Продвинутые операции
 - **Управление snapshot'ами** — создание, список и удаление снимков ВМ
@@ -91,7 +93,16 @@
 - Witness IP/connectivity недоступны через API (только через vSphere Client UI)
 - Idle vSAN кластеры возвращают пустые perf-samples — это валидный production-state, не ошибка
 
-Подробности в `SKILL.md` → секция "vSAN monitoring".
+### 🌐 Guest IP retrieval (Phase 6)
+
+REST API vCenter **не отдаёт guest IP** в принципе — он живёт только в `vim.vm.GuestInfo`, доступном через pyVmomi SOAP. Реализовано 2 read-only инструмента (Tier 1):
+
+- **`get_vm_ip(vm_name, hostname=None)`** — детальный guest IP одной ВМ через pyVmomi `vm.guest`: primary IP + guest hostname + VMware Tools version + per-NIC (network, MAC, connected, IPv4/IPv6 + prefixLength). Graceful fallback если ВМ не найдена / не powered on / Tools не запущены.
+- **`list_vm_ips(hostname=None)`** — одноразовая сводка через один PropertyCollector-запрос: имя + power state + guest IP для каждой powered-on ВМ с работающим Tools (templates пропускаются). Удобно для network inventory и "find VM by IP".
+
+**Требования:** ВМ должна быть **powered on** и **VMware Tools должна быть запущена** (данные живут в `vm.guest`, без Tools = нет guest info). Live-протестировано на cluster12: `FF-UPTIME-3 → 10.20.34.159`.
+
+Подробности в `SKILL.md` → секция "Virtual Machines — listing & details".
 
 ### ⚠️ Интерпретация метрик памяти
 
@@ -175,11 +186,11 @@ SERVER_PORT=8000
 
 ## Использование SKILL.md
 
-В репозитории включён файл `SKILL.md` — комплексный гайд для использования всех 53+ инструментов MCP с AI-агентами.
+В репозитории включён файл `SKILL.md` — комплексный гайд для использования всех 55+ инструментов MCP с AI-агентами.
 
 ### Что включено в SKILL.md
 
-- **Полный список инструментов** — все 53+ инструментов по 12 категориям (включая vSAN monitoring)
+- **Полный список инструментов** — все 55+ инструментов по 12 категориям (включая vSAN monitoring + guest IP)
 - **Паттерны использования** — правильные способы вызова инструментов
 - **Примеры команд** — ready-to-use примеры для типичных задач
 - **Система безопасности** — какие операции требуют подтверждения
@@ -258,8 +269,8 @@ AI-агент с загруженным SKILL.md:
 
 ### Архитектура
 - **REST API** (`vsphere_client.py`) — для inventory и mutating операций
-- **SOAP/pyVmomi** (`pyvmomi_client.py`) — для алармов, событий, метрик, vSAN (`/vsanHealth` endpoint) и продвинутых операций
-- **FastMCP** (`server.py`) — реализация MCP протокола с 53+ инструментами (12 категорий)
+- **SOAP/pyVmomi** (`pyvmomi_client.py`) — для алармов, событий, метрик, vSAN (`/vsanHealth` endpoint), guest IP (`vm.guest`) и продвинутых операций
+- **FastMCP** (`server.py`) — реализация MCP протокола с 55+ инструментами (12 категорий)
 
 ---
 
@@ -277,6 +288,17 @@ AI-агент с загруженным SKILL.md:
 # Операции питания
 "Включи ВМ DatabaseServer"
 "Перезагрузи ВМ: WebServer01, WebServer02"
+```
+
+### 🌐 Guest IP (поиск ВМ по IP / inventory)
+```bash
+# Получить IP одной ВМ (детально: hostname, Tools version, per-NIC)
+"Какой IP у ВМ FF-UPTIME-3?"
+"Покажи детальный guest IP для WebServer01"
+
+# Сводка IP по всем ВМ
+"Покажи IP всех ВМ"
+"Найди ВМ с IP 10.20.34.159"
 ```
 
 ### Мониторинг производительности
